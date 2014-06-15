@@ -1,0 +1,143 @@
+## Reproducible Research: Peer Assessment 1
+
+### Loading and preprocessing the data
+Load Libraries
+```{r}
+library(ggplot2)
+library(xtable)
+library(plyr)
+library(scales)
+```
+
+To load the data, I unzip the activty folder and read in the actvitiy file. 
+I also preprocessed the data by changing the class of the date and interval variables.
+
+```{r Read_Activity}
+unzip("activity.zip")
+activity <- read.csv("activity.csv")
+activity$date <- as.Date(activity$date,"%Y-%m-%d")
+activity$interval <- as.POSIXct(sprintf("%04d",activity$interval), format= "%H%M")
+activity$interval <- format(activity$interval, format="%H:%M")
+```
+### What is mean total number of steps taken per day?
+
+#### 1. Make a histogram of the total number of steps taken each day
+
+The count of steps per day is calculated to create a histogram of the total 
+number of steps taken each day shown below.
+```{r count steps per day} 
+ActSum <- ddply(activity, .(date), summarise, StepTot = sum(steps, na.rm=T))
+```
+```{r Histgram_Steps_per_Day, fig.height=5, fig.width=8}
+ggplot(ActSum, aes(date, StepTot)) + 
+	labs(x= "Date", y="Steps per Day") +
+	geom_bar(stat="identity", fill="steelblue4") +
+	ggtitle("Histogram of Total # of Steps per Day")
+```	
+
+#### 2. Calculate and report the mean and median total number of steps taken per day
+
+```{r mean_medianStepsPerDay, results='asis'} 
+ActCenter <- ddply(activity, .(date), summarise, 
+					Step_Mean = round(mean(steps, na.rm=T),4),
+					Step_Median = median(steps, na.rm=T))
+ActCenter$date <- as.character(ActCenter$date)
+print(xtable(ActCenter), type="html")
+```
+
+### What is the average daily activity pattern?
+
+#### 1. Make a time series plot of the 5-minute interval and the average number of steps taken, averaged across all days
+
+```{r Avg steps per interval} 
+ActMeanInterval <- ddply(activity, .(interval), summarise, 
+							StepMean= mean(steps, na.rm=T))
+ActMeanInterval$interval <- as.POSIXct(sprintf("%04s",as.character(ActMeanInterval$interval)), 
+								format= "%H:%M")
+```
+```{r Time Series-Interval by Avg Step, fig.height=5, fig.width=7}
+ggplot(ActMeanInterval, aes(interval, StepMean)) + 
+	labs(x= "5-Minute Interval", y="Average Steps per Interval") +
+	geom_line() + 
+	scale_x_datetime(breaks = date_breaks("2 hours"),
+		labels = date_format("%H:%M")) +
+	ggtitle("Time Series plot: 5-minute Interval by Average Steps")
+```
+
+#### 2. Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
+
+```{r}
+maxInterval <- ActMeanInterval[ActMeanInterval$StepMean %in% max(ActMeanInterval$StepMean,na.rm=T),]
+```
+The 5-minute interval, `r format(maxInterval$interval, "%H:%M")`, has the maximum average number of steps.
+
+### Imputing missing values
+
+#### 1. Calculate and report the total number of missing values in the dataset
+
+``` {r}
+missing <- sum(is.na(activity$steps))
+```
+The total number of missing values in the activity dataset is `r missing`.
+
+#### 2. Devise a strategy for filling in all of the missing values in the dataset. 
+
+To fill in the missing values I will use the average of the 5-minute interval. 
+I will use the ActMeanInterval dataset since the average 5-minute interval (over all days) 
+was already calculated.
+
+#### 3. Create a new dataset that is equal to the original dataset but with the missing data filled in.
+```{r}
+ActMeanInterval$interval <- format(ActMeanInterval$interval, format="%H:%M")
+Actmerge <- merge(activity, ActMeanInterval, by.x="interval", by.y="interval") 
+Actmerge$steps <- ifelse(is.na(Actmerge$steps), Actmerge$StepMean, Actmerge$steps)
+```
+
+#### 4. Make a histogram of the total number of steps taken each day 
+
+```{r} 
+ActSum2 <- ddply(Actmerge, .(date), summarise, StepTot = sum(steps))
+```
+```{r Histgram_Steps_per_Day_Imputed, fig.height=5, fig.width=8}
+ggplot(ActSum2, aes(date, StepTot)) + 
+	labs(x= "Date", y="Steps per Day") +
+	geom_bar(stat="identity", fill="violetred4") +
+	ggtitle("Histogram of Total # of Steps per Day (Missing Values Imputed)")
+```	
+#### Calculate and report the mean and median total number of steps taken per day. 
+
+```{r, results='asis'} 
+ActCenter2 <- ddply(Actmerge, .(date), summarise, 
+					Step_MeanImputed = round(mean(steps, na.rm=T),4),
+					Step_MedianImputed = median(steps, na.rm=T))
+ActCenter2$date <- as.character(ActCenter2$date)
+print(xtable(ActCenter2), type="html")
+```
+#### Do these values differ from the estimates from the first part of the assignment? 
+Yes, the mean and median  values differ from the estimates in first part of the assignment
+
+#### What is the impact of imputing missing data on the estimates of the total daily number of steps?
+The 8 days with missing daily steps have the same estimates for total daily steps in the imputed dataset.
+
+### Are there differences in activity patterns between weekdays and weekends?
+
+#### 1. Create a new factor variable in the dataset with two levels – “weekday” and “weekend” indicating whether a given date is a weekday or weekend day.
+```{r}
+Actmerge$Weekdays <- ifelse(weekdays(Actmerge$date) %in% c("Saturday","Sunday"), "weekend", "weekday")
+```
+#### 2. Make a panel plot containing a time series plot of the 5-minute interval and the average number of steps taken, averaged across all weekday days or weekend days. 
+```{r} 
+ActMeanInt_imp <- ddply(Actmerge, c(.(interval), .(Weekdays)), summarise, 
+						StepMeanImp= mean(steps, na.rm=T))
+ActMeanInt_imp$interval <- as.POSIXct(sprintf("%04s",as.character(ActMeanInt_imp$interval)), 
+								format= "%H:%M")
+```
+
+```{r Time Series Comparison-Weekdays vs Weekend, fig.height=5, fig.width=7}
+ggplot(ActMeanInt_imp, aes(interval, StepMeanImp)) + 
+	labs(x= "5-Minute Interval", y="Average Steps per Interval") +
+	geom_line() + facet_wrap(~Weekdays, nrow=2) +
+	scale_x_datetime(breaks = date_breaks("2 hours"),
+		labels = date_format("%H:%M")) +
+	ggtitle("Time Series plot Comparison: 5-minute Interval by Average Steps")
+```
